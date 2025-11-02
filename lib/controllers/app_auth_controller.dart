@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:auth/models/response_model.dart';
 import 'package:auth/models/user.dart';
 import 'package:conduit_core/conduit_core.dart';
+import 'package:jaguar_jwt/jaguar_jwt.dart';
 
 class AppAuthController extends ResourceController {
   final ManagedContext managedContext;
@@ -15,18 +18,40 @@ class AppAuthController extends ResourceController {
       );
     }
 
-    final User fetchedUser = User();
+    try {
+      final qFindUser = Query<User>(managedContext)
+        ..where((table) => table.username).equalTo(user.username)
+        ..returningProperties(
+          (table) => [table.id, table.salt, table.hashPassword],
+        );
+      final findUser = await qFindUser.fetchOne();
 
-    return Response.ok(
-      ResModel(
-        data: {
-          "id": fetchedUser.id,
-          "refreshToken": fetchedUser.refreshToken,
-          "accessToken": fetchedUser.accessToken,
-        },
-        message: "Все четко! Авторизовался",
-      ).toJson(),
-    );
+      if (findUser == null) {
+        throw QueryException.input("Пользователь не найден", []);
+      }
+
+      final requestHasPassword = generatePasswordHash(
+        user.password ?? "",
+        findUser.salt ?? "",
+      );
+
+      if (requestHasPassword == findUser.hashPassword) {
+        await _updateTokens(findUser.id ?? -1, managedContext);
+        final newUser = await managedContext.fetchObjectWithID<User>(
+          findUser.id,
+        );
+        return Response.ok(
+          ResModel(
+            data: newUser?.backing.contents,
+            message: 'Авторизация прошла успешно!',
+          ),
+        );
+      } else {
+        throw QueryException.input("Пароль неверный", []);
+      }
+    } on QueryException catch (error) {
+      return Response.serverError(body: ResModel(message: error.message));
+    }
   }
 
   @Operation.put()
@@ -37,18 +62,62 @@ class AppAuthController extends ResourceController {
       );
     }
 
-    final User fetchedUser = User();
+    final salt = generateRandomSalt();
+    final hashPassword = generatePasswordHash(user.password ?? "", salt);
 
-    return Response.ok(
-      ResModel(
-        data: {
-          "id": fetchedUser.id,
-          "refreshToken": fetchedUser.refreshToken,
-          "accessToken": fetchedUser.accessToken,
-        },
-        message: "Все четко! Зарегался",
-      ).toJson(),
-    );
+    try {
+      late final int id;
+      await managedContext.transaction((transaction) async {
+        final qFindUser = Query<User>(transaction)
+          ..where((table) => table.username).equalTo(user.username)
+          ..returningProperties((table) => [table.email]);
+
+        final findUser = await qFindUser.fetchOne();
+
+        if (findUser?.username == user.username) {
+          throw QueryException.input(
+            "Пользователь c таким логином уже существует, придумайте другой логин!",
+            [],
+          );
+        }
+
+        if (findUser?.email == user.email) {
+          throw QueryException.input(
+            "Пользователь c таким email уже существует!",
+            [],
+          );
+        }
+
+        final qCreateUser = Query<User>(transaction)
+          ..values.username = user.username
+          ..values.email = user.email
+          ..values.salt = salt
+          ..values.hashPassword = hashPassword;
+
+        final createdUser = await qCreateUser.insert();
+        id = createdUser.asMap()['id'];
+
+        await _updateTokens(id, transaction);
+      });
+      final userData = await managedContext.fetchObjectWithID<User>(id);
+      return Response.ok(
+        ResModel(
+          data: userData?.backing.contents,
+          message: 'Регистрация прошла успешно!',
+        ),
+      );
+    } on QueryException catch (error) {
+      return Response.serverError(body: ResModel(message: error.message));
+    }
+  }
+
+  Future<void> _updateTokens(int id, ManagedContext transaction) async {
+    Map<String, dynamic> tokens = _getTokens(id: id);
+    final qUpdateTokens = Query<User>(transaction)
+      ..where((user) => user.id).equalTo(id)
+      ..values.accessToken = tokens['accessToken']
+      ..values.refreshToken = tokens['refreshToken'];
+    await qUpdateTokens.updateOne();
   }
 
   @Operation.post("refresh")
@@ -67,5 +136,19 @@ class AppAuthController extends ResourceController {
         message: "Токен успешн обновлен!",
       ).toJson(),
     );
+  }
+
+  Map<String, dynamic> _getTokens({required int id}) {
+    //TODO REMOVE WHEN RELEASE
+    final key = Platform.environment['SECRET_KEY'] ?? 'SECRET_KEY';
+    final accessClaimset = JwtClaim(
+      maxAge: Duration(hours: 1),
+      otherClaims: {'id': id},
+    );
+    final refreshClaimset = JwtClaim(otherClaims: {'id': id});
+    final tokens = <String, dynamic>{};
+    tokens['accessToken'] = issueJwtHS256(accessClaimset, key);
+    tokens['refreshToken'] = issueJwtHS256(refreshClaimset, key);
+    return tokens;
   }
 }

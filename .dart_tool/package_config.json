@@ -26,6 +26,12 @@
       "languageVersion": "3.4"
     },
     {
+      "name": "auth_header",
+      "rootUri": "file:///C:/Users/Dayfive/AppData/Local/Pub/Cache/hosted/pub.dev/auth_header-3.0.1",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
       "name": "boolean_selector",
       "rootUri": "file:///C:/Users/Dayfive/AppData/Local/Pub/Cache/hosted/pub.dev/boolean_selector-2.1.2",
       "packageUri": "lib/",
@@ -174,6 +180,12 @@
       "rootUri": "file:///C:/Users/Dayfive/AppData/Local/Pub/Cache/hosted/pub.dev/io-1.0.5",
       "packageUri": "lib/",
       "languageVersion": "3.4"
+    },
+    {
+      "name": "jaguar_jwt",
+      "rootUri": "file:///C:/Users/Dayfive/AppData/Local/Pub/Cache/hosted/pub.dev/jaguar_jwt-3.0.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
     },
     {
       "name": "js",
