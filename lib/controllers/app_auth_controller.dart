@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:auth/models/response_model.dart';
 import 'package:auth/models/user.dart';
+import 'package:auth/utils/app_utils.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:jaguar_jwt/jaguar_jwt.dart';
 
@@ -62,6 +63,7 @@ class AppAuthController extends ResourceController {
       );
     }
 
+    print('--------------Запрос: ${user.backing.contents}');
     final salt = generateRandomSalt();
     final hashPassword = generatePasswordHash(user.password ?? "", salt);
 
@@ -69,10 +71,11 @@ class AppAuthController extends ResourceController {
       late final int id;
       await managedContext.transaction((transaction) async {
         final qFindUser = Query<User>(transaction)
-          ..where((table) => table.username).equalTo(user.username)
-          ..returningProperties((table) => [table.email]);
+          ..where((x) => x.username).equalTo(user.username);
 
         final findUser = await qFindUser.fetchOne();
+
+        print('---------------Пользователь: ${findUser?.backing.contents}');
 
         if (findUser?.username == user.username) {
           throw QueryException.input(
@@ -124,18 +127,21 @@ class AppAuthController extends ResourceController {
   Future<Response> refreshToken(
     @Bind.path("refresh") String refreshToken,
   ) async {
-    final User fetchedUser = User();
+    try {
+      final id = AppUtils.getIdFromToken(refreshToken);
 
-    return Response.ok(
-      ResModel(
-        data: {
-          "id": fetchedUser.id,
-          "refreshToken": fetchedUser.refreshToken,
-          "accessToken": fetchedUser.accessToken,
-        },
-        message: "Токен успешн обновлен!",
-      ).toJson(),
-    );
+      await _updateTokens(id, managedContext);
+      final user = await managedContext.fetchObjectWithID<User>(id);
+
+      return Response.ok(
+        ResModel(
+          data: user?.backing.contents,
+          message: 'Успешное обновление токенов!',
+        ),
+      );
+    } catch (error) {
+      return Response.serverError(body: ResModel(message: error.toString()));
+    }
   }
 
   Map<String, dynamic> _getTokens({required int id}) {
