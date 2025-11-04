@@ -1,9 +1,9 @@
-class ResModel {
+class AppResponseModel {
   final dynamic error;
   final dynamic data;
   final dynamic message;
 
-  ResModel({this.error, this.data, this.message});
+  AppResponseModel({this.error, this.data, this.message});
 
   Map<String, dynamic> toJson() => {
     "error": error ?? "",

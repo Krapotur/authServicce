@@ -1,7 +1,7 @@
-import 'dart:io';
-
-import 'package:auth/models/response_model.dart';
+import 'package:auth/models/app_response_model.dart';
 import 'package:auth/models/user.dart';
+import 'package:auth/utils/app_const.dart';
+import 'package:auth/utils/app_response.dart';
 import 'package:auth/utils/app_utils.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:jaguar_jwt/jaguar_jwt.dart';
@@ -15,7 +15,7 @@ class AppAuthController extends ResourceController {
   Future<Response> signIn(@Bind.body() User user) async {
     if (user.username == null || user.password == null) {
       return Response.badRequest(
-        body: ResModel(message: 'Поля username и password обзательны!'),
+        body: AppResponseModel(message: 'Поля username и password обзательны!'),
       );
     }
 
@@ -41,17 +41,15 @@ class AppAuthController extends ResourceController {
         final newUser = await managedContext.fetchObjectWithID<User>(
           findUser.id,
         );
-        return Response.ok(
-          ResModel(
-            data: newUser?.backing.contents,
-            message: 'Авторизация прошла успешно!',
-          ),
+        return AppResponse.ok(
+          body: newUser?.backing.contents,
+          message: 'Авторизация прошла успешно!',
         );
       } else {
         throw QueryException.input("Пароль неверный", []);
       }
-    } on QueryException catch (error) {
-      return Response.serverError(body: ResModel(message: error.message));
+    } catch (error) {
+      return AppResponse.serverError(error, message: "Ошибка авторизации!");
     }
   }
 
@@ -59,7 +57,9 @@ class AppAuthController extends ResourceController {
   Future<Response> signUp(@Bind.body() User user) async {
     if (user.username == null || user.password == null || user.email == null) {
       return Response.badRequest(
-        body: ResModel(message: 'Поля username, password, email обзательны!'),
+        body: AppResponseModel(
+          message: 'Поля username, password, email обзательны!',
+        ),
       );
     }
 
@@ -103,14 +103,12 @@ class AppAuthController extends ResourceController {
         await _updateTokens(id, transaction);
       });
       final userData = await managedContext.fetchObjectWithID<User>(id);
-      return Response.ok(
-        ResModel(
-          data: userData?.backing.contents,
-          message: 'Регистрация прошла успешно!',
-        ),
+      return AppResponse.ok(
+        body: userData?.backing.contents,
+        message: 'Регистрация прошла успешно!',
       );
-    } on QueryException catch (error) {
-      return Response.serverError(body: ResModel(message: error.message));
+    } catch (error) {
+      return AppResponse.serverError(error, message: "Ошибка регистрации!");
     }
   }
 
@@ -129,26 +127,31 @@ class AppAuthController extends ResourceController {
   ) async {
     try {
       final id = AppUtils.getIdFromToken(refreshToken);
-
-      await _updateTokens(id, managedContext);
       final user = await managedContext.fetchObjectWithID<User>(id);
-
-      return Response.ok(
-        ResModel(
-          data: user?.backing.contents,
+      if (user?.refreshToken != refreshToken) {
+        return Response.unauthorized(
+          body: AppResponseModel(message: 'Token is not valid!'),
+        );
+      } else {
+        await _updateTokens(id, managedContext);
+        final user = await managedContext.fetchObjectWithID<User>(id);
+        return AppResponse.ok(
+          body: user?.backing.contents,
           message: 'Успешное обновление токенов!',
-        ),
-      );
+        );
+      }
     } catch (error) {
-      return Response.serverError(body: ResModel(message: error.toString()));
+      return AppResponse.serverError(
+        error,
+        message: "Ошибка обновления токенов!",
+      );
     }
   }
 
   Map<String, dynamic> _getTokens({required int id}) {
-    //TODO REMOVE WHEN RELEASE
-    final key = Platform.environment['SECRET_KEY'] ?? 'SECRET_KEY';
+    final key = AppConst.secretKey;
     final accessClaimset = JwtClaim(
-      maxAge: Duration(hours: 1),
+      maxAge: Duration(minutes: 15),
       otherClaims: {'id': id},
     );
     final refreshClaimset = JwtClaim(otherClaims: {'id': id});
